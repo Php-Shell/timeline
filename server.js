@@ -8,10 +8,11 @@ const path = require('path');
 
 const app = express();
 app.use(express.static('public'));                 // serves index.html too if you want
-app.use('/uploads', express.static('uploads'));
-fs.mkdirSync('uploads', { recursive: true });
+app.use('/uploads', express.static(path.join(DATA, 'uploads')));
+const DATA = process.env.RENDER ? '/opt/render/project/src/data' : '.';
+fs.mkdirSync(path.join(DATA, 'uploads'), { recursive: true });
 
-const db = new Database('career.db');              // SQLite file storage
+const db = new Database(path.join(DATA, 'career.db'));              // SQLite file storage
 db.exec(`CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), jobs TEXT NOT NULL DEFAULT '[]')`);
 const getJobs = () => JSON.parse(db.prepare('SELECT jobs FROM state WHERE id=1').get()?.jobs || '[]');
 const setJobs = j => db.prepare(
@@ -25,7 +26,7 @@ io.on('connection', sock => {
   sock.on('jobs', jobs => { setJobs(jobs); sock.broadcast.emit('jobs', jobs); }); // live relay to everyone else
   sock.on('upload', ({ name, data }, cb) => {
     const safe = Date.now() + '-' + name.replace(/[^\w.\-]/g, '_');
-    fs.writeFileSync(path.join('uploads', safe), Buffer.from(data));
+    fs.writeFileSync(path.join(DATA, 'uploads', safe), Buffer.from(data));
     cb('/uploads/' + safe);                        // return public URL
   });
 });
