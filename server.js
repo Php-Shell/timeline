@@ -10,10 +10,13 @@ const app = express();
 app.use(cors());
 app.use(express.static('public'));
 
+
 // ---------- persistent storage paths (DATA must be defined BEFORE use) ----------
 const DATA = process.env.RENDER ? '/opt/render/project/src/data' : '.';
-fs.mkdirSync(path.join(DATA, 'uploads'), { recursive: true });
-app.use('/uploads', express.static(path.join(DATA, 'uploads')));
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// serve uploaded files
+app.use('/uploads', require('express').static(UPLOAD_DIR));
 
 // ---------- SQLite ----------
 const db = new Database(path.join(DATA, 'career.db'));
@@ -40,15 +43,21 @@ const setJobs = jobs => {
 
 // ---------- realtime ----------
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' }, maxHttpBufferSize: 25e6 });
+const io = require('socket.io')(server, {
+  cors: { origin: '*' },
+  maxHttpBufferSize: 10 * 1024 * 1024   // ← allow up to 10 MB files (default is only 1 MB!)
+});
 
 io.on('connection', sock => {
   sock.emit('state', getJobs()); // send current data on join
   sock.on('jobs', jobs => { setJobs(jobs); sock.broadcast.emit('jobs', jobs); });
-  sock.on('upload', ({ name, data }, cb) => {
-    const safe = Date.now() + '-' + name.replace(/[^\w.\-]/g, '_');
-    fs.writeFileSync(path.join(DATA, 'uploads', safe), Buffer.from(data));
-    cb('/uploads/' + safe);
+  sock.on('upload', (file, cb) => {
+    try {
+      if (!file || !file.data || !file.name) return cb(null);
+      const safe = Date.now() + '_' + String(file.name).replace(/[^\w.\-() ]/g, '_').slice(-80);
+      fs.writeFileSync(path.join(DATA, 'uploads', safe), Buffer.from(file.data));
+      cb('/uploads/' + safe);
+    } catch (e) { console.error('upload failed', e); cb(null); }
   });
 });
 
